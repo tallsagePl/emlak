@@ -9,6 +9,7 @@ error = Bir hata oluştu. Lütfen daha sonra tekrar deneyin veya /start ile yeni
 view-menu-title = Ne görmek istiyorsunuz?
 view-all = 📋 Tüm ilanlar
 view-filtered = 🎯 Filtre ile
+parsed-listings = 🔍 Parslanan İlanlar
 
 # Filtreler
 filter-count = 🔍 Filtre sayısı: {$count}

@@ -1,9 +1,20 @@
-require('dotenv').config();
-const { Telegraf, Markup } = require('telegraf');
-const { I18n } = require('@grammyjs/i18n');
-const db = require('./db');
+import config from '../config.js';
+import { Telegraf, Markup } from 'telegraf';
+import { I18n } from '@grammyjs/i18n';
+import database from '../database/index.js';
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+const bot = new Telegraf(config.bot.token);
+
+// Инициализация базы данных
+(async () => {
+  try {
+    await database.init();
+    console.log('✅ База данных инициализирована для бота');
+  } catch (error) {
+    console.error('❌ Ошибка инициализации базы данных:', error.message);
+    process.exit(1);
+  }
+})();
 const sessions = new Map();
 
 // Глобальная Map для хранения языков пользователей
@@ -43,6 +54,7 @@ function showStartMenu(ctx) {
   return ctx.reply(ctx.t('welcome'), Markup.inlineKeyboard([
     [Markup.button.callback(ctx.t('add'), 'add')],
     [Markup.button.callback(ctx.t('view'), 'view')],
+    [Markup.button.callback(ctx.t('parsed-listings'), 'view_parsed')],
     [Markup.button.callback(ctx.t('change-lang'), 'change_lang')]
   ]));
 }
@@ -52,6 +64,7 @@ bot.start((ctx) => {
   ctx.reply(ctx.t('welcome'), Markup.inlineKeyboard([
     [Markup.button.callback(ctx.t('add'), 'add')],
     [Markup.button.callback(ctx.t('view'), 'view')],
+    [Markup.button.callback(ctx.t('parsed-listings'), 'view_parsed')],
     [Markup.button.callback(ctx.t('change-lang'), 'change_lang')]
   ]));
 });
@@ -93,19 +106,20 @@ bot.action('view_all', async (ctx) => {
   }
 
   const offset = 0;
-  const result = await db.query(
-    `SELECT * FROM listings ORDER BY created_at DESC LIMIT 10 OFFSET $1`,
+  // Используем новый API для получения всех объявлений
+  const allListings = await database.query(
+    `SELECT * FROM user_listings WHERE status = 'live' ORDER BY created_at DESC LIMIT 10 OFFSET $1`,
     [offset]
   );
 
-  if (!result.rows.length) {
+  if (!allListings.rows.length) {
     await ctx.reply(ctx.t('listing-empty'), Markup.inlineKeyboard([
       [Markup.button.callback(ctx.t('back'), 'back_to_menu')]
     ]));
     return;
   }
 
-  for (const row of result.rows) {
+  for (const row of allListings.rows) {
     // Формируем строку адреса
     let addressText = '';
     if (row.address) {
@@ -142,7 +156,7 @@ bot.action('view_all', async (ctx) => {
   if (offset > 0) {
     buttons.push(Markup.button.callback(ctx.t('listing-prev'), `view_all_${offset - 10}`));
   }
-  if (result.rows.length === 10) {
+  if (allListings.rows.length === 10) {
     buttons.push(Markup.button.callback(ctx.t('listing-next'), `view_all_${offset + 10}`));
   }
   if (buttons.length) {
@@ -173,19 +187,19 @@ bot.action(/view_all_(\d+)/, async (ctx) => {
   }
 
   const offset = parseInt(ctx.match[1]);
-  const result = await db.query(
-    `SELECT * FROM listings ORDER BY created_at DESC LIMIT 10 OFFSET $1`,
+  const paginatedListings = await database.query(
+    `SELECT * FROM user_listings WHERE status = 'live' ORDER BY created_at DESC LIMIT 10 OFFSET $1`,
     [offset]
   );
 
-  if (!result.rows.length) {
+  if (!paginatedListings.rows.length) {
     await ctx.reply(ctx.t('listing-empty'), Markup.inlineKeyboard([
       [Markup.button.callback(ctx.t('back'), 'back_to_menu')]
     ]));
     return;
   }
 
-  for (const row of result.rows) {
+  for (const row of paginatedListings.rows) {
     // Формируем строку адреса
     let addressText = '';
     if (row.address) {
@@ -222,7 +236,7 @@ bot.action(/view_all_(\d+)/, async (ctx) => {
   if (offset > 0) {
     buttons.push(Markup.button.callback(ctx.t('listing-prev'), `view_all_${offset - 10}`));
   }
-  if (result.rows.length === 10) {
+  if (paginatedListings.rows.length === 10) {
     buttons.push(Markup.button.callback(ctx.t('listing-next'), `view_all_${offset + 10}`));
   }
   if (buttons.length) {
@@ -345,18 +359,18 @@ bot.on('text', async (ctx) => {
   }
   if (session.step === 'add_description') {
     session.data.description = ctx.message.text.trim();
-    await db.query(
-      `INSERT INTO listings (owner_id, property_type, rooms, price, location, address, description) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        ctx.from.id, // owner_id
-        session.data.property_type,
-        session.data.rooms,
-        session.data.price,
-        session.data.location ? JSON.stringify(session.data.location) : null,
-        session.data.address,
-        session.data.description
-      ]
-    );
+    
+    // Используем новый API для создания объявления
+    await database.createUserListing({
+      owner_id: ctx.from.id.toString(),
+      property_type: session.data.property_type,
+      district: session.data.district || 'Не указан',
+      price: session.data.price,
+      rooms: session.data.rooms,
+      location: session.data.location ? JSON.stringify(session.data.location) : null,
+      address: session.data.address,
+      description: session.data.description
+    });
     sessions.delete(ctx.from.id);
     await ctx.reply(ctx.t('listing-success'));
     return showStartMenu(ctx);
@@ -538,13 +552,13 @@ async function showFilteredListings(ctx, offset = 0) {
     session.shownMessages = [];
   }
 
-  const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const result = await db.query(
-    `SELECT * FROM listings ${whereClause} ORDER BY created_at DESC LIMIT 10 OFFSET $${params.length + 1}`,
+  const whereClause = where.length ? `WHERE status = 'live' AND ${where.join(' AND ')}` : "WHERE status = 'live'";
+  const filteredListings = await database.query(
+    `SELECT * FROM user_listings ${whereClause} ORDER BY created_at DESC LIMIT 10 OFFSET $${params.length + 1}`,
     [...params, offset]
   );
 
-  if (!result.rows.length) {
+  if (!filteredListings.rows.length) {
     const btnMsg = await ctx.reply(ctx.t('listing-empty'), Markup.inlineKeyboard([
       [Markup.button.callback(ctx.t('back'), 'back_to_menu')]
     ]));
@@ -552,7 +566,7 @@ async function showFilteredListings(ctx, offset = 0) {
     return;
   }
 
-  for (const row of result.rows) {
+  for (const row of filteredListings.rows) {
     let addressText = '';
     if (row.address) {
       addressText = `📍 ${escapeMarkdown(row.address)}\n`;
@@ -588,7 +602,7 @@ async function showFilteredListings(ctx, offset = 0) {
   if (offset > 0) {
     buttons.push(Markup.button.callback(ctx.t('listing-prev'), `show_filtered_${offset - 10}`));
   }
-  if (result.rows.length === 10) {
+  if (filteredListings.rows.length === 10) {
     buttons.push(Markup.button.callback(ctx.t('listing-next'), `show_filtered_${offset + 10}`));
   }
   let actionButtons = [
@@ -717,5 +731,207 @@ bot.action('set_lang_tr', async (ctx) => {
   try { await ctx.deleteMessage(); } catch (e) {}
   return showStartMenu(ctx);
 });
+
+// ===== СПАРШЕННЫЕ ОБЪЯВЛЕНИЯ =====
+
+// Главное меню спаршенных объявлений
+bot.action('view_parsed', async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (e) {}
+  
+  await ctx.reply(ctx.t('parsed-listings'), Markup.inlineKeyboard([
+    [Markup.button.callback('🏠 HepsEmlak (5)', 'parsed_hepsiemlak')],
+    [Markup.button.callback('🏡 EmlakJet (7)', 'parsed_emlakjet')],
+    [Markup.button.callback('🏢 Sahibinden (0)', 'parsed_sahibinden')],
+    [Markup.button.callback('🔑 Zingate (0)', 'parsed_zingate')],
+    [Markup.button.callback('📊 Все источники (12)', 'parsed_all')],
+    [Markup.button.callback('↩️ Назад', 'back_to_menu')]
+  ]));
+});
+
+// Обработчики для каждого сайта
+bot.action('parsed_hepsiemlak', async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (e) {}
+  await showParsedListings(ctx, 'hepsiemlak', 0);
+});
+
+bot.action('parsed_emlakjet', async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (e) {}
+  await showParsedListings(ctx, 'emlakjet', 0);
+});
+
+bot.action('parsed_sahibinden', async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (e) {}
+  await showParsedListings(ctx, 'sahibinden', 0);
+});
+
+bot.action('parsed_zingate', async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (e) {}
+  await showParsedListings(ctx, 'zingate', 0);
+});
+
+// Показать все объявления
+bot.action('parsed_all', async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (e) {}
+  await showParsedListings(ctx, null, 0);
+});
+
+// Пагинация для спаршенных объявлений
+bot.action(/parsed_(.+)_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (e) {}
+  const source = ctx.match[1] === 'all' ? null : ctx.match[1];
+  const offset = parseInt(ctx.match[2]);
+  await showParsedListings(ctx, source, offset);
+});
+
+// Функция для показа спаршенных объявлений
+async function showParsedListings(ctx, source = null, offset = 0) {
+  const session = sessions.get(ctx.from.id) || {};
+  if (!session.shownMessages) session.shownMessages = [];
+  sessions.set(ctx.from.id, session);
+
+  // Удаляем старые сообщения
+  if (session.shownMessages && session.shownMessages.length) {
+    for (const msgId of session.shownMessages) {
+      try { await ctx.deleteMessage(msgId); } catch (e) {}
+    }
+    session.shownMessages = [];
+  }
+
+  // Формируем запрос
+  let query, params;
+  if (source) {
+    query = `SELECT * FROM parsed_listings WHERE site_name = $1 ORDER BY created_at DESC LIMIT 5 OFFSET $2`;
+    params = [source, offset];
+  } else {
+    query = `SELECT * FROM parsed_listings ORDER BY created_at DESC LIMIT 5 OFFSET $1`;
+    params = [offset];
+  }
+
+  const listings = await database.query(query, params);
+
+  if (!listings.rows.length) {
+    const btnMsg = await ctx.reply('❌ Спаршенные объявления не найдены', Markup.inlineKeyboard([
+      [Markup.button.callback('↩️ Назад', 'view_parsed')]
+    ]));
+    session.shownMessages.push(btnMsg.message_id);
+    return;
+  }
+
+  for (const row of listings.rows) {
+    const data = row.data;
+    
+    // Получаем эмодзи для сайта
+    let source_emoji = '🏘️';
+    let displayName = row.site_name;
+    
+    switch(row.site_name) {
+      case 'hepsiemlak':
+        source_emoji = '🏠';
+        displayName = 'HEPSEMLAK';
+        break;
+      case 'emlakjet':
+        source_emoji = '🏡';
+        displayName = 'EMLAKJET';
+        break;
+      case 'sahibinden':
+        source_emoji = '🏢';
+        displayName = 'SAHIBINDEN';
+        break;
+      case 'hurriyet':
+        source_emoji = '📰';
+        displayName = 'HÜRRIYET EMLAK';
+        break;
+      case 'zingate':
+        source_emoji = '🔑';
+        displayName = 'ZINGATE';
+        break;
+      default:
+        source_emoji = '🏘️';
+        displayName = row.site_name.toUpperCase();
+    }
+    
+    // Формируем основную информацию
+    let message = `${source_emoji} *${escapeMarkdown(displayName)}*\n\n`;
+    message += `🏘️ *${escapeMarkdown(data.title || 'Без названия')}*\n`;
+    message += `💰 *${escapeMarkdown(data.price || 'Цена не указана')}*\n`;
+    message += `📍 ${escapeMarkdown(data.location || 'Локация не указана')}\n`;
+    message += `🆔 ID: \`${escapeMarkdown(row.listing_id)}\`\n\n`;
+
+    // Добавляем характеристики (только ключевые)
+    if (data.specifications && Object.keys(data.specifications).length > 0) {
+      message += `📋 *Характеристики:*\n`;
+      const specs = data.specifications;
+      
+      // Показываем только самые важные характеристики
+      const importantSpecs = [
+        'Номер объявления', 'Количество комнат', 'м² (брутто)', 'м² (нетто)', 
+        'Расположен на', 'Здание возраст', 'Количество этажей'
+      ];
+      
+      let specCount = 0;
+      for (const [key, value] of Object.entries(specs)) {
+        if (importantSpecs.includes(key) && specCount < 5) {
+          message += `• ${escapeMarkdown(key)}: ${escapeMarkdown(value)}\n`;
+          specCount++;
+        }
+      }
+      message += '\n';
+    }
+
+    // Добавляем описание, если есть
+    if (data.description && data.description.trim()) {
+      const desc = data.description.trim();
+      const shortDesc = desc.length > 150 ? desc.substring(0, 150) + '...' : desc;
+      message += `📝 ${escapeMarkdown(shortDesc)}\n\n`;
+    }
+
+    // Добавляем дату парсинга
+    const parsedDate = new Date(row.created_at).toLocaleDateString('ru-RU');
+    message += `⏰ Спаршено: ${escapeMarkdown(parsedDate)}`;
+
+    const sent = await ctx.replyWithMarkdownV2(message);
+    session.shownMessages.push(sent.message_id);
+
+    // Добавляем кнопку с ссылкой на оригинал
+    if (data.url) {
+      const linkMsg = await ctx.reply('🔗 Ссылка на оригинал:', Markup.inlineKeyboard([
+        [Markup.button.url('Посмотреть на сайте', data.url)]
+      ]));
+      session.shownMessages.push(linkMsg.message_id);
+    }
+  }
+
+  // Добавляем кнопки пагинации
+  let buttons = [];
+  const sourceParam = source || 'all';
+  
+  if (offset > 0) {
+    buttons.push(Markup.button.callback('⬅️ Назад', `parsed_${sourceParam}_${offset - 5}`));
+  }
+  if (listings.rows.length === 5) {
+    buttons.push(Markup.button.callback('Вперёд ➡️', `parsed_${sourceParam}_${offset + 5}`));
+  }
+
+  const navigationButtons = [
+    [Markup.button.callback('↩️ К источникам', 'view_parsed')],
+    [Markup.button.callback('🏠 Главное меню', 'back_to_menu')]
+  ];
+
+  if (buttons.length > 0) {
+    navigationButtons.unshift(buttons);
+  }
+
+  const navMsg = await ctx.reply(`Показано: ${offset + 1}-${offset + listings.rows.length}`, 
+    Markup.inlineKeyboard(navigationButtons)
+  );
+  session.shownMessages.push(navMsg.message_id);
+}
 
 bot.launch().then(() => console.log('🤖 Бот запущен'));

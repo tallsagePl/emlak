@@ -1,0 +1,134 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+## Стиль кодирования
+
+### 1. Именование
+- Используйте camelCase для переменных и функций
+- PascalCase для классов
+- UPPER_SNAKE_CASE для констант
+- Описательные имена на английском языке
+
+### 2. Обработка ошибок
+```javascript
+try {
+  const result = await someAsyncFunction();
+  return result;
+} catch (error) {
+  console.error('Ошибка в функции:', error.message);
+  throw new Error(`Описание ошибки: ${error.message}`);
+}
+```
+
+### 3. Асинхронные функции
+```javascript
+async function processData(data) {
+  const processedData = await validateData(data);
+  const savedData = await saveToDatabase(processedData);
+  return savedData;
+}
+```
+
+### 4. Конфигурация
+```javascript
+// config.js
+export default {
+  database: {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    // ...
+  },
+  browser: {
+    headless: false,
+    timeout: 30000,
+    // ...
+  }
+};
+```
+
+## Специфика проекта
+
+### 1. Работа с puppeteer-real-browser
+- Всегда используйте try-catch для операций с браузером
+- Закрывайте браузер в finally блоке
+- Используйте `turnstile: true` для автоматического решения капчи
+- Сохраняйте профиль браузера для повторных сессий
+
+### 2. Парсинг данных
+- Создавайте отдельные парсеры для каждого сайта
+- Используйте базовый класс для общей логики
+- Валидируйте полученные данные перед сохранением
+- Логируйте процесс парсинга
+
+### 3. Работа с базой данных
+- Используйте пул соединений
+- Подготавливайте запросы для безопасности
+- Обрабатывайте ошибки подключения
+- Используйте транзакции для сложных операций
+
+### 4. Обработка ошибок
+- Логируйте все ошибки с контекстом
+- Не прерывайте выполнение при ошибке одного сайта
+- Продолжайте обработку остальных сайтов
+- Уведомляйте о критических ошибках
+
+## Примеры кода
+
+### Базовый парсер
+```javascript
+// parsers/base.js
+export class BaseParser {
+  constructor(page, config) {
+    this.page = page;
+    this.config = config;
+  }
+
+  async parse() {
+    throw new Error('Метод parse должен быть переопределен');
+  }
+
+  async waitForElement(selector, timeout = 10000) {
+    try {
+      await this.page.waitForSelector(selector, { timeout });
+      return true;
+    } catch (error) {
+      console.error(`Элемент ${selector} не найден:`, error.message);
+      return false;
+    }
+  }
+}
+```
+
+### Конфигурация браузера
+```javascript
+// utils/browser.js
+import { connect } from 'puppeteer-real-browser';
+
+export async function createBrowser(config) {
+  return await connect({
+    headless: config.browser.headless,
+    args: config.browser.args,
+    turnstile: true,
+    customConfig: {
+      userDataDir: config.browser.userDataDir,
+    },
+    connectOption: {
+      defaultViewport: null,
+    },
+  });
+}
+```
+
+## Рекомендации по производительности
+- Используйте пул браузеров для параллельной обработки
+- Кэшируйте результаты запросов
+- Ограничивайте количество одновременных соединений
+- Мониторьте использование памяти и CPU
+
+## Безопасность
+- Не храните чувствительные данные в коде
+- Используйте переменные окружения для конфигурации
+- Валидируйте все входные данные
+- Логируйте действия для аудита

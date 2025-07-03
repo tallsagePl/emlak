@@ -9,6 +9,7 @@ error = Произошла ошибка. Пожалуйста, попробуй�
 view-menu-title = Что хотите посмотреть?
 view-all = 📋 Все объявления
 view-filtered = 🎯 По фильтру
+parsed-listings = 🔍 Спаршенные объявления
 
 # Фильтры
 filter-count = 🔍 Кол-во фильтров: {$count}

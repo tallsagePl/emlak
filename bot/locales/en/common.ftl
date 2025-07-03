@@ -9,6 +9,7 @@ error = An error occurred. Please try again later or start over with /start
 view-menu-title = What do you want to see?
 view-all = 📋 All listings
 view-filtered = 🎯 By filter
+parsed-listings = 🔍 Parsed Listings
 
 # Filters
 filter-count = 🔍 Number of filters: {$count}

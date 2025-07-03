@@ -1,0 +1,56 @@
+{
+  "timestamp": "2025-07-03T13:23:46.324Z",
+  "totalCount": 5,
+  "realties": [
+    {
+      "listingId": "56735-3116",
+      "realtyId": 43685998,
+      "price": 7600000,
+      "currency": "TL",
+      "mapLocation": {
+        "lat": 36.83597159807325,
+        "lon": 30.59093475606035
+      }
+    },
+    {
+      "listingId": "92535-1498",
+      "realtyId": 44282376,
+      "price": 11500000,
+      "currency": "TL",
+      "mapLocation": {
+        "lat": 36.8600938723934,
+        "lon": 30.606985492065412
+      }
+    },
+    {
+      "listingId": "33775-1004",
+      "realtyId": 44348961,
+      "price": 6500000,
+      "currency": "TL",
+      "mapLocation": {
+        "lat": 36.85773619800168,
+        "lon": 30.60279786586746
+      }
+    },
+    {
+      "listingId": "74238-10959",
+      "realtyId": 43364999,
+      "price": 7000000,
+      "currency": "TL",
+      "mapLocation": {
+        "lat": 36.86128562677477,
+        "lon": 30.634737678204285
+      }
+    },
+    {
+      "listingId": "69254-4680",
+      "realtyId": 44663641,
+      "price": 4380000,
+      "currency": "TL",
+      "mapLocation": {
+        "lat": 36.848340252557136,
+        "lon": 30.610533578196367
+      }
+    }
+  ]
+}
