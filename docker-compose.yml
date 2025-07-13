@@ -1,17 +1,61 @@
+version: '3.8'
+
 services:
+  # База данных PostgreSQL
   postgres:
     image: postgres:15
-    container_name: emlak_postgres
     environment:
       POSTGRES_DB: emlak
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 111
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: emlak
+      POSTGRES_PASSWORD: "111"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emlak"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Парсер
+  parser:
+    build:
+      context: .
+      dockerfile: docker/parser.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - NODE_ENV=production
+    volumes:
+      - parser_data:/app/data
+    restart: unless-stopped
+
+  # Telegram бот
+  bot:
+    build:
+      context: .
+      dockerfile: docker/bot.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - NODE_ENV=production
+      - BOT_TOKEN=${BOT_TOKEN}
     restart: unless-stopped
 
 volumes:
   postgres_data: 
+  parser_data: 

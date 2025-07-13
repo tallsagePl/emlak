@@ -1,28 +1,26 @@
 import { connect } from 'puppeteer-real-browser';
-import config from '../config.js';
+import config from '../../config.js';
 
 export async function createBrowser() {
-  try {
-    const { browser, page } = await connect({
-      headless: config.browser.headless,
-      args: config.browser.args,
-      turnstile: config.browser.turnstile,
-      customConfig: {
-        userDataDir: config.browser.userDataDir,
-      },
-      connectOption: {
-        defaultViewport: null,
-      },
-      disableXvfb: config.browser.disableXvfb,
-      ignoreAllFlags: config.browser.ignoreAllFlags,
-    });
+  const browser = await connect({
+    headless: config.parser.puppeteer.headless,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+      '--window-size=1920x1080'
+    ],
+    executablePath: config.parser.puppeteer.executablePath,
+    userDataDir: './browser_data'
+  });
 
-    console.log('🌐 Браузер успешно запущен');
-    return { browser, page };
-  } catch (error) {
-    console.error('❌ Ошибка запуска браузера:', error.message);
-    throw error;
-  }
+  return browser;
+}
+
+export async function delay(ms = 2000) {
+  await new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export async function navigateToPage(page, url, options = {}) {

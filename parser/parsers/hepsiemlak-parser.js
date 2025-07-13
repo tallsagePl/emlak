@@ -1,8 +1,16 @@
-import { connect } from 'puppeteer-real-browser';
-import fs from 'fs-extra';
-import chalk from 'chalk';
+import { CONSTANTS } from '../utils/index.js';
+import { 
+    formatPrice,
+    formatDate,
+    cleanText,
+    extractNumber,
+    waitForFetchResponse,
+    handleCloudflare,
+    initBrowser,
+    collectImages
+} from '../utils/index.js';
 
-class HepsiemlakParser {
+export class HepsiemlakParser {
   constructor() {
     this.browser = null;
     this.page = null;
@@ -53,44 +61,13 @@ class HepsiemlakParser {
   }
 
   async init() {
-    console.log(chalk.blue('🚀 Инициализация полного парсера недвижимости...'));
+    console.log(CONSTANTS.CHALK.blue('🚀 Инициализация полного парсера недвижимости...'));
     
-    const { browser, page } = await connect({
-      headless: false,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
-        '--no-default-browser-check',
-        '--disable-default-apps',
-        '--disable-popup-blocking',
-        '--disable-translate',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-ipc-flooding-protection'
-      ],
-      turnstile: true,
-      connectOption: {
-        defaultViewport: { width: 1366, height: 768 }
-      }
-    });
-
+    const { browser, page } = await initBrowser();
     this.browser = browser;
     this.page = page;
     
-    // Настройки для обхода детекции бота
-    await this.page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
-      });
-    });
-    
-    console.log(chalk.green('✅ Браузер запущен'));
+    console.log(CONSTANTS.CHALK.green('✅ Браузер запущен'));
   }
 
   translateField(text) {
@@ -104,20 +81,20 @@ class HepsiemlakParser {
   }
 
   async step1_GetMapData() {
-    console.log(chalk.yellow('\n📍 ЭТАП 1: Получение данных с карты'));
-    console.log(chalk.blue('🗺️ Перехват API /api/realty-map/ при загрузке карты...'));
+    console.log(CONSTANTS.CHALK.yellow('\n📍 ЭТАП 1: Получение данных с карты'));
+    console.log(CONSTANTS.CHALK.blue('🗺️ Перехват API /api/realty-map/ при загрузке карты...'));
     
     let realtyMapData = null;
 
     // Настраиваем перехват ПЕРЕД переходом на страницу
-    console.log(chalk.blue('🕷️ Настраиваем перехват API...'));
+    console.log(CONSTANTS.CHALK.blue('🕷️ Настраиваем перехват API...'));
     
     this.page.on('response', async response => {
       const url = response.url();
       const status = response.status();
       
       if (status === 200 && url.includes('/api/realty-map/')) {
-        console.log(chalk.green(`📥 ОТВЕТ REALTY-MAP API: ${url}`));
+        console.log(CONSTANTS.CHALK.green(`📥 ОТВЕТ REALTY-MAP API: ${url}`));
         
         try {
           const contentType = response.headers()['content-type'] || '';
@@ -126,18 +103,18 @@ class HepsiemlakParser {
             const data = await response.json();
             const dataSize = JSON.stringify(data).length;
             
-            console.log(chalk.green(`✅ JSON данные получены: ${dataSize} байт`));
+            console.log(CONSTANTS.CHALK.green(`✅ JSON данные получены: ${dataSize} байт`));
             
             realtyMapData = data;
             
             if (data.realties) {
-              console.log(chalk.green(`🎉 НАЙДЕНО ПОЛЕ REALTIES: ${data.realties.length} объявлений`));
+              console.log(CONSTANTS.CHALK.green(`🎉 НАЙДЕНО ПОЛЕ REALTIES: ${data.realties.length} объявлений`));
               this.realtiesData = data.realties;
             }
           }
           
         } catch (error) {
-          console.error(chalk.red(`❌ Ошибка обработки ответа: ${error.message}`));
+          console.error(CONSTANTS.CHALK.red(`❌ Ошибка обработки ответа: ${error.message}`));
         }
       }
     });
@@ -145,7 +122,7 @@ class HepsiemlakParser {
     // Переходим на страницу карты
     const mapUrl = 'https://www.hepsiemlak.com/harita/konyaalti-satilik?districts=uluc,uncali,konyaalti-liman-mah,hurma,konyaalti-sarisu,konyaalti-altinkum&floorCounts=1-5&mapTopLeft=36.89465474733249,%2030.53083419799805&mapBottomRight=36.81285800626765,%2030.66069602966309&p37=120401';
     
-    console.log(chalk.yellow(`🎯 Переходим на карту: ${mapUrl}`));
+    console.log(CONSTANTS.CHALK.yellow(`🎯 Переходим на карту: ${mapUrl}`));
     
     await this.page.goto(mapUrl, { 
       waitUntil: 'domcontentloaded',
@@ -153,21 +130,14 @@ class HepsiemlakParser {
     });
 
     // Ждем загрузки API
-    console.log(chalk.cyan('⏰ Ждем загрузки API (30 секунд)...'));
+    console.log(CONSTANTS.CHALK.cyan('⏰ Ждем загрузки API (30 секунд)...'));
     await new Promise(resolve => setTimeout(resolve, 30000));
 
     if (this.realtiesData.length === 0) {
       throw new Error('Не удалось получить данные с карты');
     }
 
-    console.log(chalk.green(`✅ ЭТАП 1 ЗАВЕРШЕН: Получено ${this.realtiesData.length} объявлений`));
-    
-    // Сохраняем данные карты
-    await fs.writeFile('step1-map-data.json', JSON.stringify({
-      timestamp: new Date().toISOString(),
-      totalCount: this.realtiesData.length,
-      realties: this.realtiesData
-    }, null, 2));
+    console.log(CONSTANTS.CHALK.green(`✅ ЭТАП 1 ЗАВЕРШЕН: Получено ${this.realtiesData.length} объявлений`));
     
     return this.realtiesData;
   }
@@ -180,8 +150,8 @@ class HepsiemlakParser {
     const { listingId, realtyId, price, mapLocation } = realty;
     const url = this.generateDetailUrl(listingId);
     
-    console.log(chalk.cyan(`\n[${index + 1}/${total}] 🔍 Парсинг: ${listingId}`));
-    console.log(chalk.gray(`🔗 ${url}`));
+    console.log(CONSTANTS.CHALK.cyan(`\n[${index + 1}/${total}] 🔍 Парсинг: ${listingId}`));
+    console.log(CONSTANTS.CHALK.gray(`🔗 ${url}`));
 
     try {
       await this.page.goto(url, { 
@@ -189,24 +159,15 @@ class HepsiemlakParser {
         timeout: 30000 
       });
 
-      // Обходим cloudflare если нужно
-      await this.handleCloudflare();
-
-      // Ждем загрузки контента
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Проверяем, что страница загрузилась корректно
-      const title = await this.page.title();
-      if (title.includes('404') || title.includes('Sayfa Bulunamadı')) {
-        throw new Error('Страница не найдена (404)');
-      }
+      await handleCloudflare(this.page);
+      await new Promise(resolve => setTimeout(resolve, CONSTANTS.DELAYS.AFTER_PAGE_LOAD));
 
       // Собираем детальную информацию
-      const detailData = await this.page.evaluate(() => {
+      const detailData = await this.page.evaluate((selectors) => {
         const data = {
           // Основная информация
-          title: '',
-          description: '',
+          title: document.querySelector(selectors.COMMON.TITLE)?.textContent?.trim() || '',
+          description: document.querySelector(selectors.COMMON.DESCRIPTION)?.textContent?.trim() || '',
           
           // Обязательные поля от пользователя
           source: window.location.href,
@@ -411,7 +372,7 @@ class HepsiemlakParser {
           'Цена': data.priceText || '',
           'Провинция': data.province || '',
           'Номер объявления': cleanedSpecs['İlan no'] || '',
-          'Дата объявления': new Date(data.parsedAt).toLocaleDateString('ru-RU') || '',
+          'Дата объявления': cleanedSpecs['İlan tarihi'] || cleanedSpecs['İlan Tarihi'] || 'Не указана',
           'Тип недвижимости': cleanedSpecs['Konut Tipi'] || '',
           'м² (брутто)': '',
           'м² (нетто)': '',
@@ -537,10 +498,34 @@ class HepsiemlakParser {
         });
 
         return data;
-      });
+      }, CONSTANTS.SELECTORS);
+
+      // Собираем изображения
+      detailData.images = await collectImages(this.page);
+
+      // Форматируем данные
+      detailData.priceText = formatPrice(detailData.priceText);
+      detailData.description = cleanText(detailData.description);
 
       // Применяем переводы
       const translatedData = this.applyTranslations(detailData);
+
+      // Форматируем данные
+      if (translatedData.specifications) {
+        translatedData.specifications['Цена'] = formatPrice(translatedData.specifications['Цена']);
+        // Форматируем дату только если она не содержит "Не указана"
+        if (translatedData.specifications['Дата объявления'] && 
+            !translatedData.specifications['Дата объявления'].includes('Не указана')) {
+          translatedData.specifications['Дата объявления'] = formatDate(translatedData.specifications['Дата объявления']);
+        }
+        translatedData.specifications['м² (брутто)'] = extractNumber(translatedData.specifications['м² (брутто)']);
+        translatedData.specifications['м² (нетто)'] = extractNumber(translatedData.specifications['м² (нетто)']);
+      }
+
+      // Очищаем описание если есть
+      if (translatedData.description) {
+        translatedData.description = cleanText(translatedData.description);
+      }
 
       // Создаем финальный объект только с нужными полями
       const result = {
@@ -558,12 +543,12 @@ class HepsiemlakParser {
       };
 
       this.detailResults.push(result);
-      console.log(chalk.green(`✅ Успешно: ${result.title || 'Без названия'}`));
+      console.log(CONSTANTS.CHALK.green(`✅ Успешно: ${result.title || 'Без названия'}`));
       
       return result;
 
     } catch (error) {
-      console.log(chalk.red(`❌ Ошибка ${listingId}: ${error.message}`));
+      console.log(CONSTANTS.CHALK.red(`❌ Ошибка ${listingId}: ${error.message}`));
       
       const errorResult = {
         listingId,
@@ -616,26 +601,26 @@ class HepsiemlakParser {
     try {
       const title = await this.page.title();
       if (title.includes('Challenge') || title.includes('Checking') || title.includes('Один момент')) {
-        console.log(chalk.yellow('🛡️ Обнаружен Cloudflare, ожидаем...'));
+        console.log(CONSTANTS.CHALK.yellow('🛡️ Обнаружен Cloudflare, ожидаем...'));
         
         let attempts = 0;
         while (attempts < 12) {
           await new Promise(resolve => setTimeout(resolve, 5000));
           const newTitle = await this.page.title();
           if (!newTitle.includes('Challenge') && !newTitle.includes('Checking') && !newTitle.includes('Один момент')) {
-            console.log(chalk.green('✅ Cloudflare пройден!'));
+            console.log(CONSTANTS.CHALK.green('✅ Cloudflare пройден!'));
             break;
           }
           attempts++;
         }
       }
     } catch (error) {
-      console.log(chalk.yellow('⚠️ Ошибка проверки Cloudflare, продолжаем...'));
+      console.log(CONSTANTS.CHALK.yellow('⚠️ Ошибка проверки Cloudflare, продолжаем...'));
     }
   }
 
   async step2_ParseDetailPages(limit = null, processedUrls = []) {
-    console.log(chalk.yellow('\n📄 ЭТАП 2: Парсинг детальных страниц'));
+    console.log(CONSTANTS.CHALK.yellow('\n📄 ЭТАП 2: Парсинг детальных страниц'));
     
     if (this.realtiesData.length === 0) {
       throw new Error('Нет данных для парсинга. Сначала выполните этап 1');
@@ -654,9 +639,9 @@ class HepsiemlakParser {
       
       const skippedCount = initialCount - filteredData.length;
       
-      console.log(chalk.cyan(`🔄 Найдено объявлений: ${initialCount}`));
-      console.log(chalk.yellow(`⏭️ Пропущено (уже обработано): ${skippedCount}`));
-      console.log(chalk.green(`🆕 К обработке: ${filteredData.length}`));
+      console.log(CONSTANTS.CHALK.cyan(`🔄 Найдено объявлений: ${initialCount}`));
+      console.log(CONSTANTS.CHALK.yellow(`⏭️ Пропущено (уже обработано): ${skippedCount}`));
+      console.log(CONSTANTS.CHALK.green(`🆕 К обработке: ${filteredData.length}`));
     }
 
     // Ограничиваем количество для тестирования
@@ -664,11 +649,11 @@ class HepsiemlakParser {
     const total = dataToProcess.length;
     
     if (total === 0) {
-      console.log(chalk.yellow('⚠️ Нет новых объявлений для обработки'));
+      console.log(CONSTANTS.CHALK.yellow('⚠️ Нет новых объявлений для обработки'));
       return;
     }
     
-    console.log(chalk.blue(`📋 Парсим ${total} объявлений...`));
+    console.log(CONSTANTS.CHALK.blue(`📋 Парсим ${total} объявлений...`));
     
     for (let i = 0; i < total; i++) {
       const realty = dataToProcess[i];
@@ -677,14 +662,14 @@ class HepsiemlakParser {
       
       // Пауза между запросами
       if (i < total - 1) {
-        console.log(chalk.gray('⏰ Пауза 3 секунды...'));
+        console.log(CONSTANTS.CHALK.gray('⏰ Пауза 3 секунды...'));
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
 
-    console.log(chalk.green(`\n✅ ЭТАП 2 ЗАВЕРШЕН`));
-    console.log(chalk.cyan(`📊 Успешно: ${this.detailResults.length}`));
-    console.log(chalk.red(`❌ Ошибок: ${this.errors.length}`));
+    console.log(CONSTANTS.CHALK.green(`\n✅ ЭТАП 2 ЗАВЕРШЕН`));
+    console.log(CONSTANTS.CHALK.cyan(`📊 Успешно: ${this.detailResults.length}`));
+    console.log(CONSTANTS.CHALK.red(`❌ Ошибок: ${this.errors.length}`));
   }
 
   async saveResults() {
@@ -701,10 +686,10 @@ class HepsiemlakParser {
         ((this.detailResults.length / (this.detailResults.length + this.errors.length)) * 100).toFixed(2) + '%' : '0%'
     };
 
-    console.log(chalk.green('\n🎉 ПАРСИНГ ЗАВЕРШЕН!'));
-    console.log(chalk.cyan(`📊 Данных с карты: ${summary.mapData}`));
-    console.log(chalk.green(`✅ Успешно обработано: ${summary.successful} (${summary.successRate})`));
-    console.log(chalk.red(`❌ Ошибок: ${summary.failed}`));
+    console.log(CONSTANTS.CHALK.green('\n🎉 ПАРСИНГ ЗАВЕРШЕН!'));
+    console.log(CONSTANTS.CHALK.cyan(`📊 Данных с карты: ${summary.mapData}`));
+    console.log(CONSTANTS.CHALK.green(`✅ Успешно обработано: ${summary.successful} (${summary.successRate})`));
+    console.log(CONSTANTS.CHALK.red(`❌ Ошибок: ${summary.failed}`));
 
     return summary;
   }
@@ -712,42 +697,26 @@ class HepsiemlakParser {
   async close() {
     if (this.browser) {
       await this.browser.close();
-      console.log(chalk.blue('🔒 Браузер закрыт'));
+      console.log(CONSTANTS.CHALK.blue('🔒 Браузер закрыт'));
     }
   }
 
-  async run(testLimit = 5, processedUrls = []) {
+  static async run(testLimit = 5, processedUrls = []) {
+    const parser = new HepsiemlakParser();
+
     try {
-      // Этап 1: Получаем данные с карты
-      await this.step1_GetMapData();
-      
-      // Этап 2: Парсим детальные страницы (ограничено для тестирования)
-      await this.step2_ParseDetailPages(testLimit, processedUrls);
-      
-      // Сохраняем результаты
-      await this.saveResults();
-      
+      await parser.init();
+      await parser.step1_GetMapData();
+      await parser.step2_ParseDetailPages(testLimit, processedUrls);
+      await parser.saveResults();
+      return parser.detailResults;
     } catch (error) {
-      console.error(chalk.red('❌ Критическая ошибка:'), error.message);
+      console.error(CONSTANTS.CHALK.red('❌ Критическая ошибка:'), error.message);
       throw error;
+    } finally {
+      await parser.close();
     }
   }
 }
 
-// Функция для запуска парсера hepsiemlak
-async function runHepsiemlak(testLimit = null, processedUrls = []) {
-  const parser = new HepsiemlakParser();
-
-  try {
-    await parser.init();
-    await parser.run(testLimit, processedUrls);
-    return parser.detailResults;
-  } catch (error) {
-    console.error(chalk.red('❌ Критическая ошибка hepsiemlak:'), error.message);
-    throw error;
-  } finally {
-    await parser.close();
-  }
-}
-
-export { HepsiemlakParser, runHepsiemlak }; 
+// Экспорт уже выполнен в строке 12 

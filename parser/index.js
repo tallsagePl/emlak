@@ -1,47 +1,18 @@
 #!/usr/bin/env node
 
-import { HepsiemlakParser, runHepsiemlak } from './hepsiemlak-parser.js';
-import { EmlakjetParser, runEmlakjet } from './emlakjet-parser.js';
-import { ProductionScheduler } from './production-scheduler.js';
-import database from './database.js';
+import { ProductionScheduler } from './scheduler/index.js';
+import { PARSERS } from './config/parsers.js';
+import database from './adapters/database.js';
 import chalk from 'chalk';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import fs from 'fs';
+import config from '../config.js';
 
 // Будут добавлены в будущем:
 // import { SahibindenParser, runSahibinden } from './sahibinden-parser.js';
 // import { HurriyetParser, runHurriyet } from './hurriyet-parser.js';
 // import { ZingateParser, runZingate } from './zingate-parser.js';
-
-// Список доступных парсеров
-const PARSERS = {
-  hepsiemlak: {
-    name: 'HepsEmlak.com',
-    runner: runHepsiemlak,
-    description: 'Парсер для сайта hepsiemlak.com'
-  },
-  emlakjet: {
-    name: 'EmlakJet.com',
-    runner: runEmlakjet,
-    description: 'Парсер для сайта emlakjet.com'
-  },
-  // В будущем:
-  // sahibinden: {
-  //   name: 'Sahibinden.com', 
-  //   runner: runSahibinden,
-  //   description: 'Парсер для сайта sahibinden.com'
-  // },
-  // hurriyet: {
-  //   name: 'HurriyetEmlak.com',
-  //   runner: runHurriyet, 
-  //   description: 'Парсер для сайта hurriyetemlak.com'
-  // },
-  // zingate: {
-  //   name: 'Zingate.com',
-  //   runner: runZingate,
-  //   description: 'Парсер для сайта zingate.com'  
-  // }
-};
 
 const argv = yargs(hideBin(process.argv))
   .command('list', 'Показать доступные парсеры', {}, showParsersList)
@@ -49,7 +20,8 @@ const argv = yargs(hideBin(process.argv))
     return yargs
       .positional('parser', {
         describe: 'Название парсера (hepsiemlak, sahibinden, hurriyet, zingate)',
-        type: 'string'
+        type: 'string',
+        choices: Object.keys(PARSERS)
       })
       .option('test', {
         alias: 't',
@@ -60,7 +32,14 @@ const argv = yargs(hideBin(process.argv))
       .option('limit', {
         alias: 'l',
         describe: 'Количество объявлений для обработки',
-        type: 'number'
+        type: 'number',
+        coerce: (arg) => {
+          const num = parseInt(arg);
+          if (isNaN(num) || num < 1) {
+            throw new Error('Лимит должен быть положительным числом');
+          }
+          return num;
+        }
       });
   }, runSingleParser)
   .command('run-all', 'Запустить все доступные парсеры', (yargs) => {
@@ -74,16 +53,18 @@ const argv = yargs(hideBin(process.argv))
       .option('limit', {
         alias: 'l',
         describe: 'Количество объявлений для обработки',
-        type: 'number'
+        type: 'number',
+        coerce: (arg) => {
+          const num = parseInt(arg);
+          if (isNaN(num) || num < 1) {
+            throw new Error('Лимит должен быть положительным числом');
+          }
+          return num;
+        }
       });
   }, runAllParsers)
   .command('production', 'Запустить продакшн планировщик', (yargs) => {
     return yargs
-      .option('config', {
-        alias: 'c',
-        describe: 'Путь к файлу конфигурации БД',
-        type: 'string'
-      })
       .option('test-run', {
         describe: 'Тестовый запуск одного цикла',
         type: 'boolean',
@@ -94,12 +75,20 @@ const argv = yargs(hideBin(process.argv))
     return yargs
       .positional('parser', {
         describe: 'Название парсера для принудительного запуска',
-        type: 'string'
+        type: 'string',
+        choices: Object.keys(PARSERS)
       })
       .option('config', {
         alias: 'c',
         describe: 'Путь к файлу конфигурации БД',
-        type: 'string'
+        type: 'string',
+        normalize: true,
+        coerce: (arg) => {
+          if (!fs.existsSync(arg)) {
+            throw new Error('Файл конфигурации не найден');
+          }
+          return arg;
+        }
       });
   }, forceProductionRun)
   .command('stats', 'Показать статистику парсеров', (yargs) => {
@@ -130,6 +119,7 @@ function showParsersList() {
     console.log(chalk.white(`🔹 ${key}:`));
     console.log(`   📝 Название: ${parser.name}`);
     console.log(`   📄 Описание: ${parser.description}`);
+    console.log(`   ⏰ Расписание: ${parser.schedule}`);
     console.log();
   });
   
@@ -229,23 +219,12 @@ async function runAllParsers(argv) {
 }
 
 async function runProduction(argv) {
-  const { config, testRun } = argv;
+  const { testRun } = argv;
   
   console.log(chalk.blue('🚀 ЗАПУСК ПРОДАКШН ПЛАНИРОВЩИКА'));
+  console.log(chalk.cyan(`🔧 Окружение: ${config.env.current.toUpperCase()}`));
   
-  // Загружаем конфигурацию БД если указана
-  let dbConfig = {};
-  if (config) {
-    try {
-      dbConfig = await import(config);
-      console.log(chalk.green(`✅ Конфигурация БД загружена: ${config}`));
-    } catch (error) {
-      console.error(chalk.red(`❌ Ошибка загрузки конфигурации: ${error.message}`));
-      process.exit(1);
-    }
-  }
-
-  const scheduler = new ProductionScheduler(dbConfig);
+  const scheduler = new ProductionScheduler();
   
   try {
     await scheduler.init();
@@ -332,7 +311,7 @@ async function forceProductionRun(argv) {
 async function showStats(argv) {
   const { config } = argv;
   
-  console.log(chalk.blue('📊 СТАТИСТИКА ПАРСЕРОВ'));
+  console.log(chalk.blue('📊 ДЕТАЛЬНАЯ СТАТИСТИКА ПАРСЕРОВ\n'));
   
   // Загружаем конфигурацию БД если указана
   let dbConfig = {};
@@ -345,28 +324,84 @@ async function showStats(argv) {
     }
   }
 
-      const db = database;
+  const db = database;
   
   try {
     await db.connect();
     
     for (const [parserName, parser] of Object.entries(PARSERS)) {
-      console.log(chalk.white(`\n🔹 ${parser.name}:`));
+      console.log(chalk.white(`🔹 ${parser.name}:`));
+      console.log(chalk.gray(`   Расписание: ${parser.schedule}`));
       
       try {
-        // Получаем статистику напрямую через универсальную БД
-        const [parserStats] = await db.database.getParserStats(parserName);
-        const [listingStats] = await db.database.getListingsStats(parserName);
+        // Получаем детальную статистику синхронизации
+        const syncStats = await db.getSyncStats(parserName, 24);
+        const recentChanges = await db.getRecentChanges(parserName, 5);
         
-        console.log(`   📝 Всего записей: ${listingStats?.total_listings || 0}`);
-        console.log(`   🔗 Обработано URL: ${parserStats?.total_processed || 0}`);
-        console.log(`   💰 Средняя цена: ${listingStats?.avg_price ? Math.round(listingStats.avg_price) + ' ₺' : 'Неизвестно'}`);
-        console.log(`   ⏰ Последний парсинг: ${listingStats?.last_parsed ? new Date(listingStats.last_parsed).toLocaleString('ru-RU') : 'Никогда'}`);
-        console.log(`   📅 Последнее обновление: ${parserStats?.last_updated ? new Date(parserStats.last_updated).toLocaleString('ru-RU') : 'Никогда'}`);
+        if (syncStats) {
+          console.log(chalk.cyan('\n   📈 Общая статистика:'));
+          console.log(`      📝 Всего записей: ${syncStats.total_listings}`);
+          console.log(`      🆔 Уникальных объявлений: ${syncStats.unique_listings}`);
+          console.log(`      💰 Средняя цена: ${syncStats.avg_price ? Math.round(syncStats.avg_price).toLocaleString() + ' ₺' : 'Неизвестно'}`);
+          console.log(`      📅 Первый парсинг: ${syncStats.first_sync ? new Date(syncStats.first_sync).toLocaleString('ru-RU') : 'Никогда'}`);
+          console.log(`      ⏰ Последняя синхронизация: ${syncStats.last_sync ? new Date(syncStats.last_sync).toLocaleString('ru-RU') : 'Никогда'}`);
+          
+          console.log(chalk.yellow('\n   🔄 За последние 24 часа:'));
+          console.log(`      ➕ Добавлено: ${syncStats.added_recently} объявлений`);
+          console.log(`      🔄 Обновлено: ${syncStats.updated_recently} объявлений`);
+          
+          if (recentChanges.length > 0) {
+            console.log(chalk.green('\n   📋 Недавние изменения:'));
+            recentChanges.forEach((change, index) => {
+              const changeIcon = change.change_type === 'added' ? '➕' : 
+                               change.change_type === 'updated' ? '🔄' : '📄';
+              const title = change.title.length > 50 ? 
+                           change.title.substring(0, 50) + '...' : 
+                           change.title;
+              const price = change.price ? 
+                           Math.round(change.price).toLocaleString() + ' ₺' : 
+                           'Цена не указана';
+              
+              console.log(`      ${changeIcon} ${title}`);
+              console.log(`         💰 ${price} | 🆔 ${change.listing_id}`);
+              
+              if (index < recentChanges.length - 1) {
+                console.log('');
+              }
+            });
+          } else {
+            console.log(chalk.gray('\n   📋 Недавних изменений нет'));
+          }
+        } else {
+          console.log(chalk.gray('   📋 Данные отсутствуют'));
+        }
+        
       } catch (error) {
         console.log(chalk.red(`   ❌ Ошибка получения статистики: ${error.message}`));
       }
+      
+      console.log(''); // Пустая строка между парсерами
     }
+    
+    // Общая сводка
+    console.log(chalk.blue('📊 ОБЩАЯ СВОДКА:'));
+    const allStats = await db.getAllStats();
+    
+    let totalListings = 0;
+    let totalAvgPrice = 0;
+    let sitesWithData = 0;
+    
+    allStats.forEach(stat => {
+      totalListings += stat.saved_listings;
+      if (stat.avg_price > 0) {
+        totalAvgPrice += stat.avg_price;
+        sitesWithData++;
+      }
+    });
+    
+    console.log(`   📝 Всего объявлений: ${totalListings.toLocaleString()}`);
+    console.log(`   🌐 Активных сайтов: ${allStats.filter(s => s.saved_listings > 0).length}`);
+    console.log(`   💰 Средняя цена по всем сайтам: ${sitesWithData > 0 ? Math.round(totalAvgPrice / sitesWithData).toLocaleString() + ' ₺' : 'Неизвестно'}`);
     
     await db.close();
     
@@ -380,7 +415,7 @@ async function showStats(argv) {
 // Экспорт для использования как модуль
 export {
   HepsiemlakParser,
-  runHepsiemlak,
+  EmlakjetParser,
   PARSERS,
   ProductionScheduler,
   database

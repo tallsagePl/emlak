@@ -1,11 +1,10 @@
 import cron from 'node-cron';
 import chalk from 'chalk';
-import database from './database.js';
-import { runHepsiemlak } from './hepsiemlak-parser.js';
-import { runEmlakjet } from './emlakjet-parser.js';
+import { PARSERS } from '../config/parsers.js';
+import database from '../adapters/database.js';
 
-class ProductionScheduler {
-  constructor(dbConfig = {}) {
+export class ProductionScheduler {
+  constructor() {
     this.db = database;
     this.isRunning = false;
     this.currentJob = null;
@@ -19,32 +18,23 @@ class ProductionScheduler {
     // Планировщики для разных парсеров
     this.schedulers = new Map();
     
-    // Список активных парсеров
-    this.parsers = {
-      hepsiemlak: {
-        name: 'HepsEmlak.com',
-        runner: runHepsiemlak,
-        schedule: '0 */4 * * *', // Каждые 4 часа в 00 минут
+    // Инициализация парсеров
+    this.parsers = Object.entries(PARSERS).reduce((acc, [key, parser]) => {
+      acc[key] = {
+        name: parser.name,
+        runner: parser.runner,
+        schedule: parser.schedule,
         enabled: true,
         lastRun: null,
-        totalRuns: 0
-      },
-      emlakjet: {
-        name: 'EmlakJet.com',
-        runner: runEmlakjet,
-        schedule: '15 */4 * * *', // Каждые 4 часа в 15 минут (со сдвигом)
-        enabled: true,
-        lastRun: null,
-        totalRuns: 0
-      }
-      // В будущем добавятся другие парсеры:
-      // sahibinden: {
-      //   name: 'Sahibinden.com',
-      //   runner: runSahibinden,
-      //   schedule: '30 */4 * * *', // Каждые 4 часа в 30 минут (со сдвигом)
-      //   enabled: true
-      // }
-    };
+        totalRuns: 0,
+        isRunning: false
+      };
+      return acc;
+    }, {});
+
+    // Обработчик для корректного завершения
+    process.on('SIGINT', this.shutdown.bind(this));
+    process.on('SIGTERM', this.shutdown.bind(this));
   }
 
   async init() {
@@ -119,22 +109,24 @@ class ProductionScheduler {
       return;
     }
 
+    if (config.isRunning) {
+      console.log(chalk.yellow(`⚠️ Парсер ${parserName} уже запущен, пропускаем`));
+      return;
+    }
+
     this.currentJob = parserName;
+    config.isRunning = true;
     const startTime = Date.now();
     
     try {
       console.log(chalk.blue(`\n🚀 ЗАПУСК ПАРСЕРА: ${config.name}`));
       console.log(chalk.gray(`Время запуска: ${new Date().toLocaleString('ru-RU')}`));
       
-      // Получаем список уже обработанных URL
-      const processedUrls = await this.db.getProcessedUrls(parserName);
-      console.log(chalk.cyan(`📋 Обработано ранее: ${processedUrls.length} URL`));
-      
-      // Запускаем парсер с фильтрацией
-      const results = await config.runner(null, processedUrls);
+      // Запускаем парсер
+      const results = await config.runner();
       
       if (results && results.length > 0) {
-        // Сохраняем результаты в БД
+        // Сохраняем результаты в БД (это также очистит старые данные)
         const saveResult = await this.db.saveParsingResults(parserName, results);
         
         // Обновляем статистику
@@ -146,14 +138,12 @@ class ProductionScheduler {
           timestamp: new Date(),
           totalFound: results.length,
           saved: saveResult.savedCount,
-          newUrls: saveResult.successfulUrls.length,
           duration: Date.now() - startTime
         };
         
         console.log(chalk.green(`✅ ${config.name} завершен:`));
         console.log(`   📊 Найдено: ${results.length}`);
         console.log(`   💾 Сохранено: ${saveResult.savedCount}`);
-        console.log(`   🆕 Новых URL: ${saveResult.successfulUrls.length}`);
         console.log(`   ⏱️ Время: ${Math.round((Date.now() - startTime) / 1000)}с`);
         
       } else {
@@ -176,6 +166,7 @@ class ProductionScheduler {
       
     } finally {
       this.currentJob = null;
+      config.isRunning = false;
       console.log(chalk.gray(`Завершено: ${new Date().toLocaleString('ru-RU')}\n`));
     }
   }
@@ -275,8 +266,6 @@ class ProductionScheduler {
     console.log(chalk.green('✅ Планировщик корректно завершен'));
   }
 }
-
-export { ProductionScheduler };
 
 // Раскомментируйте для тестового запуска:
 // (async () => {

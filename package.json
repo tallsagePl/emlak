@@ -1,28 +1,40 @@
 {
-  "name": "emlak-production-server",
+  "name": "emlak-bot",
   "version": "1.0.0",
-  "description": "Production server for Emlak bot and parsers",
-  "type": "module",
+  "description": "Telegram bot for real estate listings",
   "main": "main.js",
+  "type": "module",
   "scripts": {
     "start": "node main.js",
-    "dev": "node main.js",
-    "bot-only": "cd bot && yarn start",
-    "parsers-only": "cd parser && node --loader ./loader.mjs start-production.js"
+    "dev": "nodemon main.js",
+    "bot:dev": "cd bot && yarn dev",
+    "bot:start": "cd bot && yarn start",
+    "parser:dev": "cd parser && yarn dev",
+    "parser:start": "cd parser && yarn start",
+    "db:migrate": "node database/migrate.js",
+    "db:seed": "node database/seed.js",
+    "db:init": "node test-db-init.js",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up",
+    "docker:down": "docker-compose down",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "dependencies": {
-    "chalk": "^5.3.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "author": "Emlak Team",
-  "license": "MIT",
   "keywords": [
-    "telegram-bot",
-    "real-estate",
-    "parser",
-    "nodejs",
-    "emlak"
-  ]
+    "telegram",
+    "bot",
+    "real estate",
+    "parser"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.2",
+    "pg": "^8.16.3",
+    "puppeteer": "^21.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
 }
