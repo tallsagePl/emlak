@@ -2,6 +2,7 @@ FROM node:18-alpine
 
 # Установка зависимостей для Puppeteer
 RUN apk add --no-cache \
+    xvfb \
     chromium \
     nss \
     freetype \
