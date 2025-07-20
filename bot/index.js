@@ -14,6 +14,10 @@ import {
 import { clearOldMessages } from './utils/helpers.js';
 import NotificationService from './services/notifications.js';
 
+console.log('🔧 DEBUG: NODE_ENV =', process.env.NODE_ENV);
+console.log('🔧 DEBUG: BOT_TOKEN =', process.env.BOT_TOKEN ? '***установлен***' : 'НЕ УСТАНОВЛЕН');
+console.log('🔧 DEBUG: Используемый токен =', config.telegram.token ? '***установлен***' : 'НЕ УСТАНОВЛЕН');
+
 if (!config.telegram.token) {
   console.warn('⚠️ Внимание: Бот запущен без токена. Функциональность будет ограничена.');
 }
@@ -133,10 +137,23 @@ bot.action('settings', async (ctx) => {
 
 // Запускаем бот только если есть токен
 if (config.telegram.token) {
-  bot.launch().then(() => {
-    // Инициализируем сервис уведомлений
-    const notificationService = new NotificationService(bot, i18n);
-    notificationService.start();
+  console.log('🚀 Запускаю бота...');
+  
+  // Проверяем подключение к Telegram API
+  console.log('🔍 Проверяю подключение к Telegram API...');
+  bot.telegram.getMe().then(info => {
+    console.log('✅ Подключение к Telegram API успешно:', info.username);
+    console.log('🚀 Запускаю polling...');
+    
+    return bot.launch();
+  }).then(() => {
+    console.log('✅ Бот запущен успешно');
+    
+    // Пока отключаем автоматические уведомления из-за проблем с bot.launch()
+    // const notificationService = new NotificationService(bot, i18n);
+    // notificationService.start();
+    
+    console.log('ℹ️ Автоматические уведомления временно отключены');
     
     // Добавляем команду для принудительной проверки уведомлений (для тестирования)
     bot.command('check_notifications', async (ctx) => {
@@ -156,6 +173,8 @@ if (config.telegram.token) {
       notificationService.stop();
       bot.stop('SIGTERM');
     });
+  }).catch(error => {
+    console.error('❌ Ошибка запуска бота:', error.message);
   });
 } else {
   // Бот не запущен из-за отсутствия токена

@@ -2,6 +2,7 @@
 
 import { ProductionScheduler } from './scheduler/index.js';
 import { PARSERS } from './config/parsers.js';
+import { HepsiemlakParser, EmlakjetParser } from './parsers/index.js';
 import database from './adapters/database.js';
 import chalk from 'chalk';
 import yargs from 'yargs';

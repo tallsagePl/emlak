@@ -47,7 +47,7 @@ class ParserDatabaseAdapter {
         url: data.url,
         data: data,
         price_numeric: data.priceFromAPI || null,
-        coordinates: data.mapLocation || null
+        coordinates: data.mapLocation ? `(${data.mapLocation.lon},${data.mapLocation.lat})` : null
       };
 
       const result = await this.database.saveParsedListing(listingData);
@@ -78,14 +78,17 @@ class ParserDatabaseAdapter {
       // Подготавливаем данные для синхронизации
       const newListings = results
         .filter(result => result.success)
-        .map(result => ({
-          site_name: siteName,
-          listing_id: result.listingId || result.specifications?.['Номер объявления'] || null,
-          url: result.url,
-          data: result,
-          price_numeric: result.priceFromAPI || this.extractPrice(result.specifications?.['Цена']) || null,
-          coordinates: result.mapLocation || null
-        }));
+        .map(result => {
+
+          return {
+            site_name: siteName,
+            listing_id: result.listingId || result.specifications?.['Номер объявления'] || null,
+            url: result.url,
+            data: result,
+            price_numeric: result.priceFromAPI || this.extractPrice(result.specifications?.['Цена']) || null,
+            coordinates: result.mapLocation ? `(${result.mapLocation.lon},${result.mapLocation.lat})` : null
+          };
+        });
 
       // Выполняем умную синхронизацию
       const syncResult = await this.smartSync(siteName, newListings);
@@ -259,7 +262,7 @@ class ParserDatabaseAdapter {
       listing.url,
       JSON.stringify(listing.data),
       listing.price_numeric,
-      listing.coordinates ? JSON.stringify(listing.coordinates) : null
+      listing.coordinates
     ];
 
     const result = await this.database.query(query, values);
@@ -277,7 +280,7 @@ class ParserDatabaseAdapter {
     const values = [
       JSON.stringify(listing.data),
       listing.price_numeric,
-      listing.coordinates ? JSON.stringify(listing.coordinates) : null,
+      listing.coordinates,
       id
     ];
 

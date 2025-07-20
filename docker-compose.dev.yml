@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # База данных PostgreSQL
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: emlak
+      POSTGRES_USER: emlak
+      POSTGRES_PASSWORD: "111"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emlak"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Парсер с последовательным запуском всех парсеров
+  parser:
+    build:
+      context: .
+      dockerfile: docker/parser.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - NODE_ENV=development
+      - BOT_TOKEN=${BOT_TOKEN}  # bot токен
+    volumes:
+      - parser_data:/app/data
+    # Переопределяем команду для последовательного запуска
+    command: ["node", "parser/index.js", "run-all"]
+    restart: "no"  # Не перезапускать, так как run-all завершается
+
+  # Telegram бот
+  bot:
+    build:
+      context: .
+      dockerfile: docker/bot.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - NODE_ENV=development
+      - BOT_TOKEN=${BOT_TOKEN}  # bot токен
+    restart: unless-stopped
+
+volumes:
+  postgres_data: 
+  parser_data: 

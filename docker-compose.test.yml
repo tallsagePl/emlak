@@ -19,7 +19,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Парсер (запуск всех парсеров через один файл)
+  # Парсер с немедленным запуском всех парсеров
   parser:
     build:
       context: .
@@ -28,16 +28,18 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-emlak}
+      - POSTGRES_USER=${POSTGRES_USER:-emlak}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-111}
       - NODE_ENV=production
+      - BOT_TOKEN=${BOT_TOKEN}
     volumes:
       - parser_data:/app/data
+    # Команда для немедленного запуска всех парсеров в продакшн-режиме
     command: ["sh", "-c", "cd parser && node index.js production-force hepsiemlak && node index.js production-force emlakjet"]
-    restart: "no"
+    restart: "no"  # Не перезапускать после завершения
 
   # Telegram бот
   bot:
@@ -48,11 +50,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-emlak}
+      - POSTGRES_USER=${POSTGRES_USER:-emlak}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-111}
       - NODE_ENV=production
       - BOT_TOKEN=${BOT_TOKEN}
     restart: unless-stopped
@@ -66,33 +68,13 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-emlak}
+      - POSTGRES_USER=${POSTGRES_USER:-emlak}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-111}
       - NODE_ENV=production
       - BOT_TOKEN=${BOT_TOKEN}
-    restart: unless-stopped
-
-  # Сервис-расписание (scheduler)
-  scheduler:
-    build:
-      context: .
-      dockerfile: docker/parser.Dockerfile
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - NODE_ENV=production
-    volumes:
-      - parser_data:/app/data
-    command: ["sh", "-c", "cd parser && node index.js schedule"]
     restart: unless-stopped
 
 volumes:

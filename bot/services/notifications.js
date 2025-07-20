@@ -24,11 +24,17 @@ class NotificationService {
     if (this.isRunning) return;
     
     this.isRunning = true;
+    console.log('🔔 Сервис уведомлений запущен, проверка каждые 5 минут');
     
     // Проверяем новые объявления каждые 5 минут
     this.intervalId = setInterval(() => {
       this.checkAndSendNotifications();
     }, this.checkInterval);
+    
+    // Сразу проверяем при запуске
+    setTimeout(() => {
+      this.checkAndSendNotifications();
+    }, 5000); // Через 5 секунд после запуска
   }
 
   // Остановка сервиса
@@ -43,14 +49,16 @@ class NotificationService {
   // Проверка и отправка уведомлений
   async checkAndSendNotifications() {
     try {
+      console.log('🔍 Проверяю новые объявления для уведомлений...');
       const subscribedUsers = await database.getSubscribedUsers();
+      console.log(`👥 Найдено ${subscribedUsers.length} подписанных пользователей`);
       
       for (const user of subscribedUsers) {
         await this.sendNotificationsToUser(user);
       }
       
     } catch (error) {
-      // Логируем ошибку только в крайних случаях
+      console.error('❌ Ошибка проверки уведомлений:', error.message);
     }
   }
 
@@ -66,16 +74,19 @@ class NotificationService {
       
       // Получаем новые объявления (без фильтров)
       const newListings = await database.getNewListingsSince(lastSent);
+      console.log(`📋 Для пользователя ${user_id} найдено ${newListings.length} новых объявлений`);
       
       if (newListings.length === 0) {
         return; // Нет новых объявлений
       }
       
       // Отправляем уведомление
+      console.log(`📤 Отправляю уведомление пользователю ${user_id}`);
       await this.sendNotificationMessage(user_id, newListings);
       
       // Обновляем время последней отправки
       await database.updateLastNotificationSent(user_id);
+      console.log(`✅ Уведомление отправлено пользователю ${user_id}`);
       
     } catch (error) {
       // Логируем ошибку только в крайних случаях
